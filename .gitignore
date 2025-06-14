@@ -1,0 +1,44 @@
+# macOS 系统文件
+.DS_Store
+
+# 训练缓存文件（自动生成的 labels.cache）
+datasets/**/labels.cache
+
+# 训练过程产生的实验数据（runs/ 目录下的所有内容）
+runs/
+datasets/*/runs/
+
+# Python 编译缓存文件（__pycache__ 和 .pyc）
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 本地数据集配置文件（如果包含敏感信息）
+my_datasets/*.yaml
+
+# 训练生成的模型权重文件（.pt, .pth）
+*.pt
+*.pth
+*.weights
+
+# 临时文件和日志
+*.log
+*.tmp
+*.bak
+
+# IDE 配置文件（如 PyCharm, VSCode）
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python 虚拟环境
+venv/
+.env/
+ENV/
+
+# 其他构建产物
+build/
+dist/
+*.egg-info/
+
