@@ -156,9 +156,10 @@ class BaseDataset(Dataset):
         # 10181445添加
         num_of_input = len(os.listdir(Path(self.img_path).parent))//2   # 根据数据集下有多少个文件夹确定输入几张图像
         fs = [f.replace('train', f'train_{i}') for i in range(1, num_of_input)]     # 所有模态光的路径
-        ims = [cv2.imread(fs[i]) for i in range(num_of_input-1)]     # 读取多模态光图像，存放ims中
+        ims = [cv2.imread(fs[i], cv2.IMREAD_GRAYSCALE) for i in range(num_of_input-1)]     # 读取多模态光图像，存放ims中
         if num_of_input>1:
-            ims = np.concatenate(ims, axis=2)                # 沿通道方向拼接
+            # ims = np.concatenate(ims, axis=2)                # 沿通道方向拼接
+            ims = np.stack(ims, axis=2)  
         
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy
@@ -169,7 +170,7 @@ class BaseDataset(Dataset):
                     Path(fn).unlink(missing_ok=True)
                     im = cv2.imread(f)  # BGR
             else:  # read image
-                im = cv2.imread(f)  # BGR
+                im = cv2.imread(f, cv2.IMREAD_GRAYSCALE)  # BGR
             if im is None:
                 raise FileNotFoundError(f"Image Not Found {f}")
 

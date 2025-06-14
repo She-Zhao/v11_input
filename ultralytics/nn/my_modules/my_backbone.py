@@ -73,6 +73,9 @@ def count_model_parameters(model):
     return total_params
 
 class MultiStreamBackbone(nn.Module):
+    """
+        原始类，只支持单张图像输入。
+    """
     def __init__(self, c1, c2, w, N):
         super(MultiStreamBackbone, self).__init__()
         
@@ -110,10 +113,6 @@ class MultiStreamBackbone(nn.Module):
         # 第10层C3k2
         self.shared_C2PSA_10 = C2PSA(self.c1[10], self.c2[10])
 
-class MultiStreamBackbone_base(MultiStreamBackbone):
-    def __init__(self, c1, c2, w, N):
-        super(MultiStreamBackbone_base, self).__init__(c1, c2, w, N)
-
     def forward(self, x):
         outputs = []        
         if x.shape[1] != self.N * self.c1[0]:                       # 输入x的维度！= 图像数量*单图通道数
@@ -139,59 +138,13 @@ class MultiStreamBackbone_base(MultiStreamBackbone):
         outputs = [None, None, None, None, torch.cat(x4, dim=1), None, torch.cat(x6, dim=1), None, None, None, torch.cat(x10, dim=1)]
         return outputs  # 返回每一层的输出
 
-class MultiStreamBackbone_cbam(MultiStreamBackbone):
-    # 只有cbam 没有conv 只适用于单张图像，因为Neck部分的维度只支持原来的维度
-    def __init__(self, c1, c2, w, N):
-        super(MultiStreamBackbone_cbam, self).__init__(c1, c2, w, N)
-
-        # 初始化 CBAM 模块时传入正确的通道数
-        self.cbam = CBAM(c1 = self.N *self.c2[4])           # 用于 256*6 通道的 CBAM
-        self.cbam_10 = CBAM(c1 = self.N *self.c2[10])       # 第10层的CBAM
-
-    def forward(self, x):
-        outputs = []        
-        if x.shape[1] != self.N * self.c1[0]:                       # 输入x的维度！= 图像数量*单图通道数
-            x = x.repeat(1, self.N * self.c1[0]//x.shape[1], 1, 1)
-        x_split = torch.split(x, split_size_or_sections=3, dim=1)
-
-        x0 = [conv(img) for conv, img in zip(self.conv_0, x_split)]         # 第0层，分别通过 conv0
-        x1 = [conv(img) for conv, img in zip(self.conv_1, x0)]              # 第1层，分别通过 conv1
-        x2 = [bottle(img) for bottle, img in zip(self.C3k2_2, x1)]          # 第2层，分别通过 C3k2
-        x3 = [self.shared_conv_3(img) for img in x2]                        # 第3层，共享卷积                                      
-
-        x4 = [self.shared_C3k2_4(img) for img in x3]                        # 第4层，共享 C3k2
-        x4_cbamN = self.cbam(torch.cat(x4, dim=1))                          # 第4层实际保存的，先拼接再CBAM           
-           
-        x5 = [self.shared_conv_5(img) for img in x4]                        # 第5层，共享卷积
-    
-        x6 = [self.shared_C3k2_6(img) for img in x5]                        # 第6层，共享C3k2
-        x6_cbamN = self.cbam(torch.cat(x6,dim=1))                           # 先拼接再CBAM                                   # 第6层实际保存的
-        
-        x7 = [self.shared_conv_7(img) for img in x6]                        # 第7层，共享卷积
-        x8 = [self.shared_C3k2_8(img) for img in x7]                        # 第8层，共享C3k2                              
-        x9 = [self.shared_SPPF_9(img) for img in x8]                        # 第9层，共享SPPF 
-        
-        x10 = [self.shared_C2PSA_10(img) for img in x9]                     # x10:[8, 3072, 10, 10]                                    
-        x10_cbamN = self.cbam_10(torch.cat(x10,dim=1))                      # 先拼接再CBAM
-        
-        outputs = [None, None, None, None, x4_cbamN, None, x6_cbamN, None, None, None, x10_cbamN]
-        return outputs  # 返回每一层的输出
-
-
-
-
 class MultiStreamBackbone_conv(MultiStreamBackbone):
+    # 主干的多输入通过两个1*1降维卷积和neck的维度对齐。
     def __init__(self, c1, c2, w, N):
         super(MultiStreamBackbone_conv, self).__init__(c1, c2, w, N)
-        
-        # 初始化 CBAM 模块时传入正确的通道数
-        self.cbam = CBAM(c1 = self.N *self.c2[4])           # 用于 256*6 通道的 CBAM
-        self.cbam_10 = CBAM(c1 = self.N *self.c2[10])       # 第10层的CBAM
-         
         self.conv1x1 = Conv(self.c2[4]*self.N, self.c2[4], k=1)             # 4 6层降维
         self.conv1x1_10 = Conv(self.c2[10]*self.N, self.c2[10], k=1)        # 10层降维
 
-
     def forward(self, x):
         outputs = []        
         if x.shape[1] != self.N * self.c1[0]:                       # 输入x的维度！= 图像数量*单图通道数
@@ -204,36 +157,31 @@ class MultiStreamBackbone_conv(MultiStreamBackbone):
         x3 = [self.shared_conv_3(img) for img in x2]                        # 第3层，共享卷积                                      
 
         x4 = [self.shared_C3k2_4(img) for img in x3]                        # 第4层，共享 C3k2
-        x4_cbamN = self.cbam(torch.cat(x4, dim=1))                          # 第4层实际保存的，先拼接再CBAM
-        x4_cbam = self.conv1x1(x4_cbamN)            
+        x4 = torch.cat(x4, dim=1)
+        x4_conv = self.conv1x1(x4)            
            
         x5 = [self.shared_conv_5(img) for img in x4]                        # 第5层，共享卷积
     
         x6 = [self.shared_C3k2_6(img) for img in x5]                        # 第6层，共享C3k2
-        x6_cbamN = self.cbam(torch.cat(x6,dim=1))                           # 先拼接再CBAM
-        x6_cbam = self.conv1x1(x6_cbamN)                                    # 第6层实际保存的
+        x6 = torch.cat(x6, dim=1)
+        x6_conv = self.conv1x1(x6)                                    # 第6层实际保存的
         
         x7 = [self.shared_conv_7(img) for img in x6]                        # 第7层，共享卷积
         x8 = [self.shared_C3k2_8(img) for img in x7]                        # 第8层，共享C3k2                              
         x9 = [self.shared_SPPF_9(img) for img in x8]                        # 第9层，共享SPPF 
         
-        x10 = [self.shared_C2PSA_10(img) for img in x9]                     # x10:[8, 3072, 10, 10]                                    
-        x10_cbamN = self.cbam_10(torch.cat(x10,dim=1))                      # 先拼接再CBAM
-        x10_cbam = self.conv1x1_10(x10_cbamN)
+        x10 = [self.shared_C2PSA_10(img) for img in x9]                     # x10:[8, 3072, 10, 10]  
+        x10 = torch.cat(x10, dim=1)                                  
+        x10_conv = self.conv1x1_10(x10)
         
-        outputs = [None, None, None, None, x4_cbam, None, x6_cbam, None, None, None, x10_cbam]
+        outputs = [None, None, None, None, x4_conv, None, x6_conv, None, None, None, x10_conv]
         return outputs  # 返回每一层的输出
 
 
 class MultiStreamBackbone_max(MultiStreamBackbone):
-    # 将6*256->256的部分替换成了逐通道取max，
+    # 主干的多输入通过逐通道取max和neck的维度对齐。
     def __init__(self, c1, c2, w, N):
         super(MultiStreamBackbone_max, self).__init__(c1, c2, w, N)
-
-        
-        # 初始化 CBAM 模块时传入正确的通道数
-        self.cbam = CBAM(c1 = self.N *self.c2[4])                       # 用于 256*6 通道的 CBAM
-        self.cbam_10 = CBAM(c1 = self.N *self.c2[10])                   # 第10层的CBAM
 
     def forward(self, x):
 
@@ -247,31 +195,32 @@ class MultiStreamBackbone_max(MultiStreamBackbone):
         x3 = [self.shared_conv_3(img) for img in x2]                    # 第3层，共享conv                               
 
         x4 = [self.shared_C3k2_4(img) for img in x3]                    # 第4层，共享 C3k2
-        x4_cbamN = self.cbam(torch.cat(x4, dim=1))                      # 接CBAM
-        x4_max, _ = x4_cbamN.view(x4_cbamN.shape[0], self.N, x4_cbamN.shape[1]//self.N, x4_cbamN.shape[2], x4_cbamN.shape[3]).max(dim=1)    # 第4层实际保存的，先拼接再CBAM      
+        x4 = torch.cat(x4, dim=1)
+        x4_max, _ = x4.view(x4.shape[0], self.N, x4.shape[1]//self.N, x4.shape[2], x4.shape[3]).max(dim=1)    # 第4层实际保存的，先拼接再CBAM      
            
         x5 = [self.shared_conv_5(img) for img in x4]                    # 第5层，共享卷积
             
-        x6 = [self.shared_C3k2_6(img) for img in x5]                    # 第6层，共享C3k2
-        x6_cbamN = self.cbam(torch.cat(x6,dim=1))                       
-        x6_max, _ = x6_cbamN.view(x6_cbamN.shape[0], self.N, x6_cbamN.shape[1]//self.N, x6_cbamN.shape[2],x6_cbamN.shape[3]).max(dim=1)  
+        x6 = [self.shared_C3k2_6(img) for img in x5]                    # 第6层，共享C3k2    
+        x6 = torch.cat(x6, dim=1)               
+        x6_max, _ = x6.view(x6.shape[0], self.N, x6.shape[1]//self.N, x6.shape[2],x6.shape[3]).max(dim=1)  
 
         x7 = [self.shared_conv_7(img) for img in x6]                    # 第7层，共享卷积
         x8 = [self.shared_C3k2_8(img) for img in x7]                    # 第8层，共享C3k2                              
         x9 = [self.shared_SPPF_9(img) for img in x8]                    # 第8层，共享SPPF
         
-        x10 = [self.shared_C2PSA_10(img) for img in x9]         # x10:[8, 3072, 10, 10]                                    
-        x10_cbamN = self.cbam_10(torch.cat(x10,dim=1))          
-        x10_max, _ = x10_cbamN.view(x10_cbamN.shape[0], self.N, x10_cbamN.shape[1]//self.N, x10_cbamN.shape[2], x10_cbamN.shape[3]).max(dim=1)  
+        x10 = [self.shared_C2PSA_10(img) for img in x9]         # x10:[8, 3072, 10, 10]    
+        x10 = torch.cat(x10, dim=1)  
+
+        x10_max, _ = x10.view(x10.shape[0], self.N, x10.shape[1]//self.N, x10.shape[2], x10.shape[3]).max(dim=1)  
   
         outputs = [None, None, None, None, x4_max, None, x6_max, None, None, None, x10_max]
         return outputs  # 返回每一层的输出
     
     
-class MultiStreamBackbone_apart(MultiStreamBackbone):
-    # 分别CBAM，再max
+class MultiStreamBackbone_cbam_max(MultiStreamBackbone):
+    # 每个图像先进行CBAM，再沿着图像方向max（其实相当于是max添加了cbam）
     def __init__(self, c1, c2, w, N):
-        super(MultiStreamBackbone_apart, self).__init__(c1, c2, w, N)
+        super(MultiStreamBackbone_cbam_max, self).__init__(c1, c2, w, N)
         
         self.cbam_apart = CBAM(c1 = self.c2[4])                         # 用于 256 通道的 CBAM
         self.cbam_apart_10 = CBAM(c1 = self.c2[10])                     # 用于 512 通道的 CBAM

@@ -27,6 +27,7 @@ backbone:
   # - [-1, 2, C2PSA, [1024]] # 10
 
   - [-1, 1, MultiStreamBackbone_conv, [[64, 128, 256, 256, 512, 512, 512, 1024, 1024, 1024, 1024],0.5,3]] # 0-10，第一个[]是0-10层每一层的输出通道数，0.5为width
+  # - [-1, 1, MultiStreamBackbone_conv, [[64, 128, 256, 256, 512, 512, 512, 1024, 1024, 1024, 1024],0.5,3]]
 
 # YOLO11n head 其实是Neck和Head，Head就是最后一层的detect模块
 head:

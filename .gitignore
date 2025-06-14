@@ -7,6 +7,7 @@ datasets/**/labels.cache
 # 训练过程产生的实验数据（runs/ 目录下的所有内容）
 runs/
 datasets/*/runs/
+datasets/*
 
 # Python 编译缓存文件（__pycache__ 和 .pyc）
 __pycache__/
