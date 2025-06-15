@@ -157,22 +157,22 @@ class MultiStreamBackbone_conv(MultiStreamBackbone):
         x3 = [self.shared_conv_3(img) for img in x2]                        # 第3层，共享卷积                                      
 
         x4 = [self.shared_C3k2_4(img) for img in x3]                        # 第4层，共享 C3k2
-        x4 = torch.cat(x4, dim=1)
-        x4_conv = self.conv1x1(x4)            
+        x4_cat = torch.cat(x4, dim=1)
+        x4_conv = self.conv1x1(x4_cat)            
            
         x5 = [self.shared_conv_5(img) for img in x4]                        # 第5层，共享卷积
     
         x6 = [self.shared_C3k2_6(img) for img in x5]                        # 第6层，共享C3k2
-        x6 = torch.cat(x6, dim=1)
-        x6_conv = self.conv1x1(x6)                                    # 第6层实际保存的
+        x6_cat = torch.cat(x6, dim=1)
+        x6_conv = self.conv1x1(x6_cat)                                    # 第6层实际保存的
         
         x7 = [self.shared_conv_7(img) for img in x6]                        # 第7层，共享卷积
         x8 = [self.shared_C3k2_8(img) for img in x7]                        # 第8层，共享C3k2                              
         x9 = [self.shared_SPPF_9(img) for img in x8]                        # 第9层，共享SPPF 
         
         x10 = [self.shared_C2PSA_10(img) for img in x9]                     # x10:[8, 3072, 10, 10]  
-        x10 = torch.cat(x10, dim=1)                                  
-        x10_conv = self.conv1x1_10(x10)
+        x10_cat = torch.cat(x10, dim=1)                                  
+        x10_conv = self.conv1x1_10(x10_cat)
         
         outputs = [None, None, None, None, x4_conv, None, x6_conv, None, None, None, x10_conv]
         return outputs  # 返回每一层的输出
@@ -195,23 +195,23 @@ class MultiStreamBackbone_max(MultiStreamBackbone):
         x3 = [self.shared_conv_3(img) for img in x2]                    # 第3层，共享conv                               
 
         x4 = [self.shared_C3k2_4(img) for img in x3]                    # 第4层，共享 C3k2
-        x4 = torch.cat(x4, dim=1)
-        x4_max, _ = x4.view(x4.shape[0], self.N, x4.shape[1]//self.N, x4.shape[2], x4.shape[3]).max(dim=1)    # 第4层实际保存的，先拼接再CBAM      
+        x4_cat = torch.cat(x4, dim=1)
+        x4_max, _ = x4_cat.view(x4_cat.shape[0], self.N, x4_cat.shape[1]//self.N, x4_cat.shape[2], x4_cat.shape[3]).max(dim=1)    # 第4层实际保存的，先拼接再CBAM      
            
         x5 = [self.shared_conv_5(img) for img in x4]                    # 第5层，共享卷积
             
         x6 = [self.shared_C3k2_6(img) for img in x5]                    # 第6层，共享C3k2    
-        x6 = torch.cat(x6, dim=1)               
-        x6_max, _ = x6.view(x6.shape[0], self.N, x6.shape[1]//self.N, x6.shape[2],x6.shape[3]).max(dim=1)  
+        x6_cat = torch.cat(x6, dim=1)               
+        x6_max, _ = x6_cat.view(x6_cat.shape[0], self.N, x6_cat.shape[1]//self.N, x6_cat.shape[2],x6_cat.shape[3]).max(dim=1)  
 
         x7 = [self.shared_conv_7(img) for img in x6]                    # 第7层，共享卷积
         x8 = [self.shared_C3k2_8(img) for img in x7]                    # 第8层，共享C3k2                              
         x9 = [self.shared_SPPF_9(img) for img in x8]                    # 第8层，共享SPPF
         
         x10 = [self.shared_C2PSA_10(img) for img in x9]         # x10:[8, 3072, 10, 10]    
-        x10 = torch.cat(x10, dim=1)  
+        x10_cat = torch.cat(x10, dim=1)  
 
-        x10_max, _ = x10.view(x10.shape[0], self.N, x10.shape[1]//self.N, x10.shape[2], x10.shape[3]).max(dim=1)  
+        x10_max, _ = x10_cat.view(x10_cat.shape[0], self.N, x10_cat.shape[1]//self.N, x10_cat.shape[2], x10_cat.shape[3]).max(dim=1)  
   
         outputs = [None, None, None, None, x4_max, None, x6_max, None, None, None, x10_max]
         return outputs  # 返回每一层的输出
