@@ -23,4 +23,24 @@ if __name__ == '__main__':
                 project='runs/train',
                 name='exp',
                 )
- 
+    
+        # # 执行训练
+        # model.train(
+        #     lr0=adjusted_lr,  # 显式设置适配后的学习率
+        #     warmup_epochs=3,  # 学习率预热
+        #     warmup_momentum=0.8,  # 动量预热        
+        #     data=args.data,
+        #     cache=False,
+        #     imgsz=300,
+        #     patience=30,  # 30个epoch无改进则停止
+        #     epochs=args.epochs,
+        #     single_cls=False,
+        #     batch=args.batch,
+        #     close_mosaic=10,
+        #     workers=0,
+        #     optimizer=args.optimizer,
+        #     amp=True,
+        #     project='runs/train',
+        #     name=args.name,
+        #     device=[0, ]
+        # )

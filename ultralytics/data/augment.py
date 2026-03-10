@@ -1588,13 +1588,11 @@ class LetterBox:
         #     img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
         # )  # add border
         """241108添加"""
-        img_list = []
-        for i in range(img.shape[-1]//3):            # 遍历每个三通道组   
-            bordered_slice = cv2.copyMakeBorder(
-                img[:, :, i*3: (i+1)*3], top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
-            )                                   # 对该三通道图像应用边框
-            img_list.append(bordered_slice)     # 添加到列表中
-        img = np.concatenate(img_list, axis=2)  # 按通道维度拼接       
+        # <--- 优雅修改点：使用 Numpy 原生 Pad 完美替代 cv2，无视通道上限限制 --->
+        if len(img.shape) == 3:  # 多通道图像 (H, W, C)
+            img = np.pad(img, ((top, bottom), (left, right), (0, 0)), mode='constant', constant_values=114)
+        else:                    # 单通道灰度图 (H, W)
+            img = np.pad(img, ((top, bottom), (left, right)), mode='constant', constant_values=114) 
         
         
         if labels.get("ratio_pad"):     # 更新标签

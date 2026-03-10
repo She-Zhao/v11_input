@@ -153,13 +153,6 @@ class BaseDataset(Dataset):
         """Loads 1 image from dataset index 'i', returns (im, resized hw).从数据集索引` i `中加载1个图像，返回（im，调整hw大小）"""
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i]
         
-        # 10181445添加
-        num_of_input = len(os.listdir(Path(self.img_path).parent))//2   # 根据数据集下有多少个文件夹确定输入几张图像
-        fs = [f.replace('train', f'train_{i}') for i in range(1, num_of_input)]     # 所有模态光的路径
-        ims = [cv2.imread(fs[i], cv2.IMREAD_GRAYSCALE) for i in range(num_of_input-1)]     # 读取多模态光图像，存放ims中
-        if num_of_input>1:
-            # ims = np.concatenate(ims, axis=2)                # 沿通道方向拼接
-            ims = np.stack(ims, axis=2)  
         
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy
@@ -168,15 +161,44 @@ class BaseDataset(Dataset):
                 except Exception as e:
                     LOGGER.warning(f"{self.prefix}WARNING ⚠️ Removing corrupt *.npy image file {fn} due to: {e}")
                     Path(fn).unlink(missing_ok=True)
-                    im = cv2.imread(f)  # BGR
-            else:  # read image
-                im = cv2.imread(f, cv2.IMREAD_GRAYSCALE)  # BGR
+                    im = None 
+            
             if im is None:
-                raise FileNotFoundError(f"Image Not Found {f}")
+                # 读取基础图像 (Base Image)
+                im = cv2.imread(f, cv2.IMREAD_GRAYSCALE)  # BGR -> Grayscale
+                if im is None:
+                    raise FileNotFoundError(f"Image Not Found {f}")                
 
-            # 10281447
-            if num_of_input>1:
-                im = np.dstack((im,ims))    
+                # <--- 工业级修改点 1：动态探测是 train 还是 val，并自动寻找分支 --->
+                split_name = None
+                for s in ['train', 'val', 'test']:
+                    # 兼容 Windows(\) 和 Linux(/) 的路径斜杠
+                    if f"{os.sep}{s}{os.sep}" in f or f"/{s}/" in f.replace('\\', '/'):
+                        split_name = s
+                        break
+                
+                if split_name:
+                    ims_extra = []
+                    j = 1
+                    while True:
+                        # 安全地替换文件夹名称 (比如 /train/ 替换为 /train_1/)
+                        if os.sep in f:
+                            fs_j = f.replace(f"{os.sep}{split_name}{os.sep}", f"{os.sep}{split_name}_{j}{os.sep}")
+                        else:
+                            fs_j = f.replace(f"/{split_name}/", f"/{split_name}_{j}/")
+                            
+                        if os.path.exists(fs_j):
+                            img_extra = cv2.imread(fs_j, cv2.IMREAD_GRAYSCALE)
+                            if img_extra is not None:
+                                ims_extra.append(img_extra)
+                            j += 1
+                        else:
+                            break # 找不到更多的分支了，跳出循环
+                    
+                    # 将所有发现的分支沿着 Channel 维度拼接
+                    if ims_extra:
+                        ims_extra = np.stack(ims_extra, axis=2)
+                        im = np.dstack((im, ims_extra))  # 最终形态 (H, W, N)
 
             h0, w0 = im.shape[:2]  # orig hw
             if rect_mode:  # resize long side to imgsz while maintaining aspect ratio
@@ -220,7 +242,10 @@ class BaseDataset(Dataset):
         """Saves an image as an *.npy file for faster loading."""
         f = self.npy_files[i]
         if not f.exists():
-            np.save(f.as_posix(), cv2.imread(self.im_files[i]), allow_pickle=False)
+            # 绝对不能用 cv2.imread(self.im_files[i]) 瞎存！
+            # 必须调用上面的 load_image，把所有分支拼接好的 N 通道张量存入 .npy
+            im, _, _ = self.load_image(i, rect_mode=False) 
+            np.save(f.as_posix(), im, allow_pickle=False)
 
     def check_cache_disk(self, safety_margin=0.5):
         """Check image caching requirements vs available disk space."""

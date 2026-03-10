@@ -150,10 +150,10 @@ class BaseModel(nn.Module):
             if profile:                             # 如果 profile=True，调用_profile_one_layer
                 self._profile_one_layer(m, x, dt)   # 记录本层的执行时间        
                 
-            if hasattr(m,'N'):  # 如果m有N这个属性，N代表输入多张图像
-                x0_x10 = m(x)       # 1-10层的输出
-                y+=x0_x10
-                x = x0_x10[-1]      # 最后一层的输出（第10层）
+            if m.__class__.__name__ == "MultiStreamBackbone":
+                x_list = m(x)
+                y.extend(x_list)
+                x = x_list[-1]
             else:     
                 x = m(x)  # run 相当于m.forward(x)，注意，这里仅是对一个batch进行网络中一层的运算！
                 # 如果当前层的索引 m.i 在 self.save 中，则将当前层的输出 x 添加到 y 中保存，i就是网络的第几层
@@ -965,10 +965,13 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3),verbose�
         LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<45}{'arguments':<30}")
     ch = [ch]   # 此时ch是输入通道数的列表，记录每一层的通达信息
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out 存储模型每一层，需要保留输出的层index，当前层的输出通道
+    
+    layer_shift = 0     # <--- 引入层级偏移量，彻底消灭对循环变量 i 的强行修改 --->
+    
     # d["backbone"]一个list，list里面是yaml文件中每一层的配置
     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args; f输入来源层的索引；n重复次数；m层的类型；args层的参数
-        if i==0:
-            MULTI_FLAG = "MultiStreamBackbone" in m     # MULTI_FLAG代表是否为多输入，如果是，后面会对i进行矫正
+        # 计算当前层在网络中的真实物理索引
+        current_i = i + layer_shift
     
         m = getattr(torch.nn, m[3:]) if "nn." in m else globals()[m]  # get module 如果是标准的 PyTorch 层（如 nn.Conv2d），会用 getattr 获取 PyTorch 中的层，否则会从全局作用域中查找（一般是自定义层）
         for j, a in enumerate(args):    # 遍历 args 并处理其中的字符串参数，将其转换为 Python 数据类型（如 int、float、tuple
@@ -977,9 +980,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3),verbose�
                     args[j] = locals()[a] if a in locals() else ast.literal_eval(a) # 若 a 是局部变量，则直接取其值；否则，使用 ast.literal_eval 解析字符串
                 except ValueError:
                     pass
-
-        if MULTI_FLAG:
-            i = i+10 if i!=0 else i     # 矫正i，要不然下面的save会出错
 
         n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain 深度调整
         if m in {
@@ -1074,11 +1074,14 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3),verbose�
             args = [c1, c2, *args[1:]]
         elif m is CBFuse:
             c2 = ch[f[-1]]
-        elif "MultiStreamBackbone" in m.__name__: 
-            c1, c2, = ch[f], [int(args[1]*channel) for channel in args[0]]    #1101,c2是一个list，里面8个元素是0-8层网络的输出
-            # c1, c2, = ch[f], args[0]
-            width, num_of_input = args[1], args[2]
-            args = [c1, c2, width, num_of_input]
+        elif "MultiStream" in m.__name__: 
+            c1 = ch[f]
+            # 假设 yaml 中 args 为: [ [64, 128, 256, 256, 512, 512, 512, 1024, 1024, 1024, 1024], width, num_of_input, base_type, fusion_type, use_cbam ]
+            # 直接使用 YOLO 自带的 make_divisible 对各层通道进行宽度缩放，保证硬件友好
+            c2 = [make_divisible(c * width, 8) for c in args[0]]
+            
+            args = [c1, c2, *args[1:]]
+            layer_shift = 10
         else:
             c2 = ch[f]      # 对于未特别处理的模块，输出通道数 c2 默认设为输入通道数 ch[f]
             
@@ -1090,29 +1093,19 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3),verbose�
         t = str(m)[8:-2].replace("__main__.", "")  # module type 将模块 m 的类型转化为字符串并提取模块名称
         m_.np = sum(x.numel() for x in m_.parameters())  # number params    m_.parameters() 获取模块的所有参数，numel() 返回每个参数的元素总数
         # m_.i, m_.f, m_.type = i if isinstance(m_, MultiStreamBackbone) else i+10, f, t  # attach index, 'from' index, type 模块在模型中的index，模块的输入层索引，模块名称
-        m_.i, m_.f, m_.type = i, f, t
+        m_.i, m_.f, m_.type = current_i, f, t
         if verbose:     # 如果设置了 verbose，则打印该模块的详细信息
             LOGGER.info(f"{i:>3}{str(f):>20}{n_:>3}{m_.np:10.0f}  {t:<45}{str(args):<30}")  # print
         # 如果 f 不是 -1（即模块的输入来自某层），则将 f（输入层索引）添加到 save 列表中，表示需要保留该层的输出
-        save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist 
+        save.extend(x % current_i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist 
         layers.append(m_)   # 将当前模块 m_ 添加到 layers 列表中，layers 是所有模块实例的集合，将最终组合成整个模型。
-        if i == 0:  # 如果当前模块是第一个模块（i == 0），初始化 ch 列表
-            ch = []
-            if "MultiStreamBackbone" in m.__name__:
-                ch+=c2
-            else:
-                ch.append(c2)
+        
+        if current_i == 0 and "MultiStream" in m.__name__:
+            ch = c2.copy()  # 把 11 个层的通道一次性摊平注入框架的通道追踪器
         else:
             ch.append(c2)    # 将 c2（当前模块的输出通道）添加到 ch 中，更新通道数列表，后续模块将使用 ch 列表来获取输入通道数。
 
-        # if i == 0 and "MultiStreamBackbone" in m.__name__:
-        #     ch = c2  # 当前为第一个模块，且是 MultiStreamBackbone，直接赋值
-        # else:
-        #     ch = ch if 'ch' in locals() else []  # 确保 'ch' 已定义
-        #     ch.append(c2)  # 添加 c2 到 ch 中
-
     return nn.Sequential(*layers), sorted(save)     # 将所有 layers 模块组合成一个 nn.Sequential 模型结构并返回
-    # *layers用于解包操作，若layers = [ly1, ly2, ly3],则等价于nn.Sequential(ly1, ly2, ly3)
 
 def yaml_model_load(path):
     """Load a YOLOv8 model from a YAML file."""
