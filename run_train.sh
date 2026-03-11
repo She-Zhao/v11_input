@@ -1,5 +1,8 @@
 #!/bin/bash
-
+export CUDA_VISIBLE_DEVICES=0
+export WANDB_DISABLED=true       # <--- 强制禁用 WandB
+export WANDB_MODE=offline        # <--- 强制 WandB 进入离线模式
+export YOLOV8_NO_ULTRALYTICS_TELEMETRY=1  # <--- 关闭 YOLO 官方的数据收集（防卡死）
 # 训练脚本路径
 TRAIN_SCRIPT="train_group.py"
 # 日志目录
@@ -53,7 +56,7 @@ run_training_task() {
     
     # 开始任务并记录日志
     start_time=$(date +%s)
-    sudo python3 $TRAIN_SCRIPT --data "$data" --config "$config" 2>&1 | tee "$log_file"
+    python3 $TRAIN_SCRIPT --data "$data" --config "$config" 2>&1 | tee "$log_file"
     task_status=${PIPESTATUS[0]}  # 获取实际命令的退出状态
     
     end_time=$(date +%s)
@@ -86,19 +89,13 @@ echo "📊 任务总数: $TOTAL_TASKS"
 echo "📁 日志目录: $LOG_DIR"
 echo "=============================================================="
 
-# yolov11s 模型系列训练
+# yolo11s 模型系列训练
 echo -e "\n================================================================="
-echo "🌟🌟🌟 开始 yolov11s 模型系列训练 🌟🌟🌟"
+echo "🌟🌟🌟 开始 yolo11s 模型系列训练 🌟🌟🌟"
 echo "================================================================="
 
-run_training_task "yolov11s.yaml" "paint/_paint_16col1.yaml"
-
-# run_training_task "yolov11s.yaml" "paint/_paint_16col1.yaml"
-# run_training_task "yolov11s.yaml" "paint/_paint_16row1.yaml"
-# run_training_task "yolov11s.yaml" "paint/_paint_32col1.yaml"
-# run_training_task "yolov11s.yaml" "paint/_paint_32row1.yaml"
-# run_training_task "yolov11s.yaml" "paint/_paint_grid.yaml"
-# run_training_task "yolov11s.yaml" "paint/_paint_white.yaml"
+run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/col3.yaml"
+run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/row3.yaml"
 
 
 # 计算总耗时
