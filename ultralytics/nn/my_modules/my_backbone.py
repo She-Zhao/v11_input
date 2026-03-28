@@ -262,6 +262,55 @@ class ConvFusion(nn.Module):
 
         return x4_fused, x6_fused, x10_fused
 
+class EarlyFusionBackbone(nn.Module):
+    """
+    早期融合基类 (多通道输入)
+    直接将 N 张图片在通道维度拼接 (例如 2 张 3 通道图拼接成 6 通道)，
+    然后输入到一个标准的单流网络中进行特征提取。
+    """
+    def __init__(self, c1, c2, w, N):
+        super(EarlyFusionBackbone, self).__init__()
+        self.w = w
+        self.c1 = [c1] + c2[:-1]        
+        self.c2 = c2
+        self.N = N
+        
+        # <--- 核心修改点：第一层卷积的输入通道数为 c1 * N --->
+        self.conv_0 = Conv(self.c1[0] * self.N, self.c2[0], k=3, s=2)
+        
+        # 后续层与单流 YOLO 完全一致
+        self.conv_1 = Conv(self.c1[1], self.c2[1], k=3, s=2)
+        self.C3k2_2 = C3k2(self.c1[2], self.c2[2], 1, False, 0.25)
+        self.conv_3 = Conv(self.c1[3], self.c2[3], k=3, s=2)
+        self.C3k2_4 = C3k2(self.c1[4], self.c2[4], 1, False, 0.25)
+        self.conv_5 = Conv(self.c1[5], self.c2[5], k=3, s=2)
+        self.C3k2_6 = C3k2(self.c1[6], self.c2[6], 1, True)
+        self.conv_7 = Conv(self.c1[7], self.c2[7], k=3, s=2)
+        self.C3k2_8 = C3k2(self.c1[8], self.c2[8], 1, True)
+        self.SPPF_9 = SPPF(self.c1[9], self.c2[9], k=5)
+        self.C2PSA_10 = C2PSA(self.c1[10], self.c2[10])
+
+    def forward(self, x):
+        # 此时的 x 已经是 (B, c1*N, H, W)，直接进入第一层卷积
+        if x.shape[1] != self.N * self.c1[0]:
+            x = x.repeat(1, self.N * self.c1[0]//x.shape[1], 1, 1)        
+        
+        # 极其清爽的单流前向传播
+        x0 = self.conv_0(x)                   
+        x1 = self.conv_1(x0)                   
+        x2 = self.C3k2_2(x1)               
+        x3 = self.conv_3(x2)                   
+        x4 = self.C3k2_4(x3)               
+        x5 = self.conv_5(x4)                   
+        x6 = self.C3k2_6(x5)               
+        x7 = self.conv_7(x6)                   
+        x8 = self.C3k2_8(x7)               
+        x9 = self.SPPF_9(x8)                   
+        x10 = self.C2PSA_10(x9)              
+
+        # <--- 接口统一：为了兼容后续的 CBAM 和 Fusion 模块，包装成长度为 1 的 List --->
+        return [[x4], [x6], [x10]]
+
 # ==============================================================================
 # 实例化模块 - 根据传入的参数，组合上述模块
 # ============================================================================== 
@@ -284,8 +333,10 @@ class MultiStreamBackbone(nn.Module):
             self.backbone = FullySharedBackbone(c1, c2, w, N)
         elif base_type == 'independent':
             self.backbone = FullyIndependentBackbone(c1, c2, w, N)
+        elif base_type == 'early_fusion':
+            self.backbone = EarlyFusionBackbone(c1, c2, w, N)
         else:
-            raise ValueError(f"输入的主干网络不符合要求！可选的主干网络：`partial`、`share`、`independent`，当前为: {base_type}")
+            raise ValueError(f"输入的主干网络不符合要求！可选的主干网络：`partial`、`share`、`independent`、`early_fusion`，当前为: {base_type}")
         
         if fusion_type == 'max':
             self.fusion = MaxFusion()

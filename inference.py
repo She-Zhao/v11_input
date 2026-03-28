@@ -1,6 +1,12 @@
+"""
+个人手写的推理，指标和官方的对不齐，找不到原因，遂废弃
+后面直接使用官方的val.py去实现，对应inference_official.py
+"""
+
 import sys
 import os
 from pathlib import Path
+import argparse
 
 # =====================================================================
 # 🛡️ 强制环境隔离锁：确保导入的是你魔改后的 ultralytics，而不是系统官方包
@@ -17,7 +23,7 @@ import numpy as np
 from ultralytics import YOLO
 from tqdm import tqdm
 
-def run_multistream_inference(model_path, input_dir, output_json, conf_thres=0.1):
+def run_multistream_inference(model_path, input_dir, output_json, conf_thres=0.001, nms_iou=0.6):
     """
     多流 YOLO 模型推理脚本，并将结果保存为 JSON
     
@@ -75,11 +81,20 @@ def run_multistream_inference(model_path, input_dir, output_json, conf_thres=0.1
         # 沿着通道维度拼接，形成 (H, W, N) 的多流 Numpy 数组
         # 如果是 6 个视角，则变成 (300, 300, 6)
         stacked_img = np.dstack(ims_list)
+        # stacked_img = stacked_img[..., ::-1]
         
         # 5. 执行推理
         # 直接传入 Numpy 数组，YOLO 内部会调用我们之前修复好的 LetterBox 补边，再转 Tensor
         # 这里关闭 verbose 防止进度条被刷屏，设置 imgsz=300 保持与训练一致
-        preds = model.predict(source=stacked_img, imgsz=300, conf=conf_thres, verbose=False)
+        preds = model.predict(
+            source=stacked_img,
+            imgsz=300,
+            conf=conf_thres,
+            iou=nms_iou,
+            max_det=3000,
+            verbose=False,
+            augment=False
+        )
         
         # 6. 解析结果
         img_results = []
@@ -114,17 +129,33 @@ def run_multistream_inference(model_path, input_dir, output_json, conf_thres=0.1
         
     print(f"✅ 推理完成！结果已成功保存至: {output_path}")
 
+def main():
+    """利用 argparse 进行命令行传参"""
+    parser = argparse.ArgumentParser(description="多流 YOLO 推理脚本")
+    parser.add_argument('--model_path', type=str, required=True, help='模型权重')
+    parser.add_argument('--input_dir', type=str, required=True, help='待推理数据集所在文件夹')
+    parser.add_argument('--output_json', type=str, required=True, help='输出json路径')
+    parser.add_argument('--conf_thres', type=float, required=True, help='置信度阈值')
+    parser.add_argument('--nms_iou', type=float, required=True, default=0.6, help='NMS的默认IoU阈值')
+    args = parser.parse_args()
+
+    run_multistream_inference(
+        model_path = args.model_path,       
+        input_dir = args.input_dir,
+        output_json = args.output_json,
+        conf_thres = args.conf_thres,            # 设低一点，让下一步的 NMS 去做决策
+        nms_iou = args.nms_iou
+    )
+    
 if __name__ == '__main__':
-    # ==========================
-    # 在这里配置你的实际路径执行
-    # ==========================
+    # main()
     
     # 示例 1：执行 col3 模型的推理
     run_multistream_inference(
-        model_path="/data/ZS/v11_input/runs/train/exp2/weights/best.pt",  # 填入你昨晚训练出来的 col3 权重
-        input_dir="/data/ZS/v11_input/datasets/col3",
-        output_json="/data/ZS/defect_dataset/9_yolo_preds/val_0p05/col3.json",
-        conf_thres=0.05  # 故意设低一点，让下一步的 NMS 去做决策
+        model_path="/data/ZS/v11_input/weights/row3_part_max_cbam_iter0.pt",  # 填入你昨晚训练出来的 col3 权重
+        input_dir="/data/ZS/v11_input/datasets/row3",
+        output_json="/data/ZS/defect_dataset/9_yolo_preds/val_0p0/row3.json",
+        conf_thres=0.1            # 故意设低一点，让下一步的 NMS 去做决策
     )
     
     # 示例 2：如果你之后训练出了 row3 模型，只需复制调用：
