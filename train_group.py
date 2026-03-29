@@ -35,10 +35,10 @@ if __name__ == '__main__':
         single_cls=False,
         batch=args.batch,
         close_mosaic=10,
-        workers=0,
+        workers=8,
         optimizer=args.optimizer,
         amp=True,
-        project='runs/train',
+        project='runs/train_semi',
         name=args.name,
         device=''
     )

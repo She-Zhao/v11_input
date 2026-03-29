@@ -226,17 +226,29 @@ class v8DetectionLoss:
         anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)    # anchor_points 是锚点的位置，stride_tensor 是对应的步长信息
 
         # Targets 处理Ground Truth数据
-        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1) # 将 batch 中的目标标签、批次索引和边界框拼接到一起形成 targets
-        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])    #对其进行预处理（如尺度变换）
-        gt_labels, gt_bboxes = targets.split((1, 4), 2)     # cls, xyxy shape为[8, 7, 1]和[8, 7, 4],7代表的是每张图像的目标的个数，每次都会变
-        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)   # 表示每个 gt_bboxes（真实边界框）是否存在有效的目标
+        # ================== 【修改 1: 组装权重】 ==================
+        # 从 batch 字典获取权重，如果是纯 GT 数据没有这一列，则默认全 1.0
+        weights = batch.get("instance_weights", torch.ones_like(batch["cls"])).to(batch["cls"].device)
+
+        # 将权重拼接到最后，targets 的维度从 (N, 6) 变成 (N, 7)
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"], weights.view(-1, 1)), 1)
+        
+        # 预处理函数内部不受影响，它会把最后一列权重原封不动传出来
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        
+        # 分离出 labels, bboxes 和 的 weights
+        gt_labels, gt_bboxes, gt_weights = targets.split((1, 4, 1), 2)
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+        # ========================================================
+        
         
         # Pboxes    使用 bbox_decode 函数根据锚点和预测的分布信息解码出边界框的预测值
         pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4) 
         # dfl_conf = pred_distri.view(batch_size, -1, 4, self.reg_max).detach().softmax(-1)
         # dfl_conf = (dfl_conf.amax(-1).mean(-1) + dfl_conf.amax(-1).amin(-1)) / 2
 
-        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(    # 分配目标和生成掩码
+        # ================== 【修改 2: 获取分配索引】 ==================
+        _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
             # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
             pred_scores.detach().sigmoid(),
             (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
@@ -244,20 +256,39 @@ class v8DetectionLoss:
             gt_labels,
             gt_bboxes,
             mask_gt,
-        )           # 这一步主要是进行正负样本的分配
+        )           # 进行正负样本的分配
+        # target_gt_idx 告诉了我们每个正样本网格属于哪个真实框
+        # ==========================================================
 
-        target_scores_sum = max(target_scores.sum(), 1)
+        # ================== 【修改 3: 生成网格级权重并加权】 ==================
+        # 1. 初始化所有网格权重为 1.0，shape: (batch, h*w, 1)
+        anchor_weights = torch.ones_like(target_scores[..., 0:1])
 
-        # Cls loss
-        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        # 2. 如果当前 batch 有正样本，利用 target_gt_idx 把 gt_weights 映射过来
+        if fg_mask.sum():
+            # gt_weights.squeeze(-1) 的 shape: (batch, max_objs)
+            # 通过 gather 提取出每个网格对应的权重
+            matched_weights = torch.gather(gt_weights.squeeze(-1), 1, target_gt_idx)
+            # 只把正样本区域的权重覆盖上去
+            anchor_weights[fg_mask] = matched_weights[fg_mask].unsqueeze(-1)
 
-        # Bbox loss
+        # 3. 对 target_scores 进行加权 (用于 Bbox 回归的加权)
+        target_scores_weighted = target_scores * anchor_weights
+        target_scores_sum = max(target_scores_weighted.sum(), 1)
+
+        # 4. Cls loss (分类损失)
+        # 将原始 BCE Loss 逐元素乘以 anchor_weights，实现对伪标签分类梯度的精准压制
+        loss[1] = (self.bce(pred_scores, target_scores.to(dtype)) * anchor_weights).sum() / target_scores_sum
+
+        # 5. Bbox loss (回归损失)
         if fg_mask.sum():
             target_bboxes /= stride_tensor
+            # 【注意】：这里传入的是 target_scores_weighted
+            # 因为官方 BboxLoss 内部是用 target_scores 的和作为权重来加权 IoU Loss 的！
             loss[0], loss[2] = self.bbox_loss(
-                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores_weighted, target_scores_sum, fg_mask
             )
+        # ===================================================================
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain

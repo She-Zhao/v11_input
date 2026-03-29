@@ -9,13 +9,15 @@ TRAIN_SCRIPT="train_group.py"
 LOG_DIR="training_logs"
 # 开始时间
 START_TIME=$(date +%s)
+# batch_size
+BATCH_SIZE=32
 
 # 创建日志目录
 mkdir -p $LOG_DIR
 echo "创建日志目录: $LOG_DIR"
 
 # 初始化任务计数器
-TOTAL_TASKS=12
+TOTAL_TASKS=2
 COMPLETED_TASKS=0
 FAILED_TASKS=0
 TASK_COUNTER=0
@@ -41,6 +43,7 @@ print_summary() {
 run_training_task() {
     local config=$1
     local data=$2
+    local batch_size=${3:-$BALOBAL_SIZE}             # 如果传了就用传入的，否则用全局默认值
     local model=${config%.*}
     local dataset=${data##*/}; dataset=${dataset%.*}
     local task_name="${model}_${dataset}"
@@ -56,7 +59,7 @@ run_training_task() {
     
     # 开始任务并记录日志
     start_time=$(date +%s)
-    python3 $TRAIN_SCRIPT --data "$data" --config "$config" 2>&1 | tee "$log_file"
+    python3 $TRAIN_SCRIPT --batch $batch_size --data "$data" --config "$config" 2>&1 | tee "$log_file"
     task_status=${PIPESTATUS[0]}  # 获取实际命令的退出状态
     
     end_time=$(date +%s)
@@ -94,8 +97,10 @@ echo -e "\n================================================================="
 echo "🌟🌟🌟 开始 yolo11s 模型系列训练 🌟🌟🌟"
 echo "================================================================="
 
-run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/col3.yaml"
-run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/row3.yaml"
+
+# 启动训练任务
+run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/col3.yaml" 128
+run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/row3.yaml" 128
 
 
 # 计算总耗时

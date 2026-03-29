@@ -131,8 +131,10 @@ def verify_image_label(args):
                     assert lb.shape[1] == (5 + nkpt * ndim), f"labels require {(5 + nkpt * ndim)} columns each"
                     points = lb[:, 5:].reshape(-1, ndim)[:, :2]
                 else:
-                    assert lb.shape[1] == 5, f"labels require 5 columns, {lb.shape[1]} columns detected"
-                    points = lb[:, 1:]
+                    # 放宽列数限制，允许大于等于 5 列
+                    assert lb.shape[1] >= 5, f"labels require at least 5 columns, {lb.shape[1]} columns detected"
+                    # 严格限制只检查 1~4 列 (x,y,w,h) 是否越界，避开第 5 列权重大于 1.0 的情况
+                    points = lb[:, 1:5]
                 assert points.max() <= 1, f"non-normalized or out of bounds coordinates {points[points > 1]}"
                 assert lb.min() >= 0, f"negative label values {lb[lb < 0]}"
 
@@ -159,7 +161,8 @@ def verify_image_label(args):
             if ndim == 2:
                 kpt_mask = np.where((keypoints[..., 0] < 0) | (keypoints[..., 1] < 0), 0.0, 1.0).astype(np.float32)
                 keypoints = np.concatenate([keypoints, kpt_mask[..., None]], axis=-1)  # (nl, nkpt, 3)
-        lb = lb[:, :5]
+        # 允许保留最多 6 列 (把权重带着)，如果是 5 列就保留 5 列
+        lb = lb[:, :6]
         return im_file, lb, shape, segments, keypoints, nm, nf, ne, nc, msg
     except Exception as e:
         nc = 1

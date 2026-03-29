@@ -103,12 +103,14 @@ class YOLODataset(BaseDataset):
                 ne += ne_f
                 nc += nc_f
                 if im_file:
+                    cls_and_weight = np.hstack((lb[:, 0:1], lb[:, 5:6])) if lb.shape[1] > 5 else np.hstack((lb[:, 0:1], np.ones((lb.shape[0], 1))))
+                    
                     x["labels"].append(
                         {
                             "im_file": im_file,
                             "shape": shape,
-                            "cls": lb[:, 0:1],  # n, 1
-                            "bboxes": lb[:, 1:],  # n, 4
+                            "cls": cls_and_weight,  # n, 2 (加了权重)
+                            "bboxes": lb[:, 1:5],   # n, 4 (严格限制只取4列坐标，防止后面的Instances报错)
                             "segments": segments,
                             "keypoints": keypoint,
                             "normalized": True,
@@ -232,14 +234,22 @@ class YOLODataset(BaseDataset):
         new_batch = {}
         keys = batch[0].keys()
         values = list(zip(*[list(b.values()) for b in batch]))
+        
         for i, k in enumerate(keys):
             value = values[i]
             if k == "img":
                 value = torch.stack(value, 0)
             if k in {"masks", "keypoints", "bboxes", "cls", "segments", "obb"}:
                 value = torch.cat(value, 0)
+                
+            # [魔改核心]：在组装成 batch 后，把权重剥离出来
+            if k == "cls" and value.shape[1] > 1:
+                new_batch["instance_weights"] = value[:, 1:] # 取第二列作为权重保存到 batch 里
+                value = value[:, 0:1]                        # cls 恢复原状 (N, 1)，不影响后续官方逻辑
+                
             new_batch[k] = value
-        new_batch["batch_idx"] = list(new_batch["batch_idx"])
+            
+        new_batch["batch_idx"] = list(new_batch["batch_idx"])   
         for i in range(len(new_batch["batch_idx"])):
             new_batch["batch_idx"][i] += i  # add target image index for build_targets()
         new_batch["batch_idx"] = torch.cat(new_batch["batch_idx"], 0)
