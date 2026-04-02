@@ -1,5 +1,5 @@
 #!/bin/bash
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=2
 export WANDB_DISABLED=true       # <--- 强制禁用 WandB
 export WANDB_MODE=offline        # <--- 强制 WandB 进入离线模式
 export YOLOV8_NO_ULTRALYTICS_TELEMETRY=1  # <--- 关闭 YOLO 官方的数据收集（防卡死）
@@ -9,10 +9,13 @@ TRAIN_SCRIPT="train_group.py"
 LOG_DIR="training_logs"
 # 开始时间
 START_TIME=$(date +%s)
+
+#################### 修改区 ####################
 # batch_size
-BATCH_SIZE=32
+BATCH_SIZE=128
 # 保存目录
-PROJECT_DIR='runs/train_gt'
+PROJECT_DIR='runs/train_fly'
+################################################
 
 # 创建日志目录
 mkdir -p $LOG_DIR
@@ -103,8 +106,8 @@ echo "================================================================="
 
 
 # 启动训练任务
-run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/col3.yaml" 32 "col3"
-run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/row3.yaml" 32 "row3"
+run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint_flywheel/col3.yaml" 128 "col3"
+run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint_flywheel/row3.yaml" 128 "row3"
 
 
 # 计算总耗时

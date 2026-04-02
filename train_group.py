@@ -10,6 +10,7 @@ def parse_args():
     parser.add_argument('--name', default='exp', help='Experiment name')
     parser.add_argument('--batch', type=int, default=32, help='Batch size')
     parser.add_argument('--epochs', type=int, default=400, help='Number of epochs')
+    parser.add_argument('--project', type=str, default='runs/train', help='saved path')
     parser.add_argument('--optimizer', default='SGD', choices=['SGD', 'Adam', 'AdamW'], help='Optimizer type')
     return parser.parse_args()
 
@@ -38,7 +39,7 @@ if __name__ == '__main__':
         workers=8,
         optimizer=args.optimizer,
         amp=True,
-        project='runs/train_semi',
+        project=args.project,
         name=args.name,
         device=''
     )
