@@ -1,18 +1,50 @@
 #!/bin/bash
-export CUDA_VISIBLE_DEVICES=0
+# 注意：CUDA_VISIBLE_DEVICES 的 export 已经被移到了参数解析之后！
 export WANDB_DISABLED=true       # <--- 强制禁用 WandB
 export WANDB_MODE=offline        # <--- 强制 WandB 进入离线模式
 export YOLOV8_NO_ULTRALYTICS_TELEMETRY=1  # <--- 关闭 YOLO 官方的数据收集（防卡死）
+
 # 训练脚本路径
 TRAIN_SCRIPT="train_group.py"
 # 日志目录
 LOG_DIR="training_logs"
 # 开始时间
 START_TIME=$(date +%s)
-# batch_size
-BATCH_SIZE=32
-# 保存目录
-PROJECT_DIR='runs/train_gt'
+
+#################### 参数解析区 ####################
+# 默认参数
+BATCH_SIZE=128
+PROJECT_DIR='runs/train_fly'
+DATASET_BASE_DIR=""
+EXP_PREFIX=""
+CUDA_DEVICE="0"  # <--- 新增：默认使用 0 号显卡
+
+# 解析命令行传入的参数
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --dataset_dir) DATASET_BASE_DIR="$2"; shift ;;
+        --batch) BATCH_SIZE="$2"; shift ;;
+        --prefix) EXP_PREFIX="$2"; shift ;;
+        --project) PROJECT_DIR="$2"; shift ;;
+        --device) CUDA_DEVICE="$2"; shift ;;  # <--- 新增：解析 device 参数
+        *) echo "❌ 未知参数: $1"; exit 1 ;;
+    esac
+    shift
+done
+
+# 校验必填参数
+if [ -z "$DATASET_BASE_DIR" ] || [ -z "$EXP_PREFIX" ]; then
+    echo "❌ 错误: 必须提供 --dataset_dir 和 --prefix 参数！"
+    echo "💡 用法示例: bash $0 --dataset_dir /data/ZS/.../paint_flywheel2 --prefix iter3_4 --batch 128 --device 3"
+    exit 1
+fi
+
+# ==========================================
+# 核心修改：在这里导出 CUDA 环境变量！
+# ==========================================
+export CUDA_VISIBLE_DEVICES=$CUDA_DEVICE
+echo "🔥 指定显卡: CUDA_VISIBLE_DEVICES=$CUDA_DEVICE"
+################################################
 
 # 创建日志目录
 mkdir -p $LOG_DIR
@@ -45,7 +77,7 @@ print_summary() {
 run_training_task() {
     local config=$1
     local data=$2
-    local batch_size=${3:-$BATCH_SIZE}             # 如果传了就用传入的，否则用全局默认值
+    local batch_size=${3:-$BATCH_SIZE}
     local name=$4 
     local model=${config%.*}
     local dataset=${data##*/}; dataset=${dataset%.*}
@@ -57,6 +89,7 @@ run_training_task() {
     echo "📁 配置文件: $config"
     echo "📊 数据集: $data"
     echo "📦 保存路径: $PROJECT_DIR"
+    echo "🏷️  实验命名: $name"
     echo "📝 日志文件: $log_file"
     echo "⏱️ 开始时间: $(date)"
     echo "================================================================="
@@ -101,11 +134,9 @@ echo -e "\n================================================================="
 echo "🌟🌟🌟 开始 yolo11s 模型系列训练 🌟🌟🌟"
 echo "================================================================="
 
-
-# 启动训练任务
-run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/col3.yaml" 32 "col3"
-run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint/row3.yaml" 32 "row3"
-
+# 启动训练任务 (动态拼接路径和名称)
+run_training_task "yolo11s.yaml" "${DATASET_BASE_DIR}/col3.yaml" $BATCH_SIZE "${EXP_PREFIX}_col3"
+run_training_task "yolo11s.yaml" "${DATASET_BASE_DIR}/row3.yaml" $BATCH_SIZE "${EXP_PREFIX}_row3"
 
 # 计算总耗时
 END_TIME=$(date +%s)

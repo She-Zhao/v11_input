@@ -243,9 +243,11 @@ class YOLODataset(BaseDataset):
                 value = torch.cat(value, 0)
                 
             # [魔改核心]：在组装成 batch 后，把权重剥离出来
-            if k == "cls" and value.shape[1] > 1:
-                new_batch["instance_weights"] = value[:, 1:] # 取第二列作为权重保存到 batch 里
-                value = value[:, 0:1]                        # cls 恢复原状 (N, 1)，不影响后续官方逻辑
+            if k == "cls":
+                # 必须先判定张量维度 > 1，防止遇到全背景图构成的极端空批次 value.shape 为 (0,)
+                if value.ndim > 1 and value.shape[1] > 1:
+                    new_batch["instance_weights"] = value[:, 1:]    # 取第二列作为权重保存到 batch 里
+                    value = value[:, 0:1]                           # cls 恢复原状 (N, 1)，不影响后续官方逻辑
                 
             new_batch[k] = value
             

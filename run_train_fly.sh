@@ -106,8 +106,8 @@ echo "================================================================="
 
 
 # 启动训练任务
-run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint_flywheel/col3.yaml" 128 "col3"
-run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint_flywheel/row3.yaml" 128 "row3"
+run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint_flywheel/col3.yaml" 128 "iter3_3_col3"
+run_training_task "yolo11s.yaml" "/data/ZS/v11_input/ultralytics/cfg/datasets/paint_flywheel/row3.yaml" 128 "iter3_3_row3"
 
 
 # 计算总耗时

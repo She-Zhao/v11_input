@@ -1,7 +1,8 @@
 """
 验证集上推理，调用官方的实现，和训练时候验证的效果完全一致
 """
-
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 import sys
 # =====================================================================
 # 🛡️ 强制环境隔离锁：确保导入的是你魔改后的 ultralytics
@@ -14,7 +15,7 @@ from ultralytics import YOLO
 
 def generate_official_json():
     # 1. 加载你训练好的权重
-    model = YOLO("/data/ZS/v11_input/runs/train_semi/col3_wo_beta/weights/best.pt")
+    model = YOLO("/data/ZS/v11_input/runs/train_fly/iter3_9_col3/weights/best.pt")
     
     # 2. 直接调用 val 方法，开启 save_json
     # 这将 100% 复刻跑出 0.737 时的所有底层逻辑！
@@ -24,8 +25,10 @@ def generate_official_json():
         conf=0.001,       # 极限阈值保召回
         iou=0.6,          # 官方验证阈值
         max_det=3000,     # 防止低分框被截断
-        save_json=True,   # 【核心】强制保存 COCO 格式的 JSON
-        plots=True       # 不需要画图，省点时间
+        save_json=True,   # 保存 COCO 格式的 JSON
+        plots=True,       # 是否画图
+        project="/data/ZS/defect-vlm/output/yolo_decect/backup",        # 保存父目录
+        name="iter3_9_col3"      # 保存的名字
     )
 
 if __name__ == '__main__':
